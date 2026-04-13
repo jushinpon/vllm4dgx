@@ -1,0 +1,101 @@
+deactivate 2>/dev/null || true
+rm -rf /local_opt/vllm-install
+bash install.sh --install-dir /local_opt/vllm-install |& tee /home/install.log
+
+##final verification
+source /local_opt/vllm-install/.vllm/bin/activate
+cd /local_opt/vllm-install/vllm
+export PYTHONPATH=/local_opt/vllm-install/vllm:${PYTHONPATH:-}
+python -c "import vllm; print(vllm.__file__)"
+python -m vllm.entrypoints.openai.api_server --help
+
+
+
+bash install.sh --install-dir /local_opt/vllm-install
+
+
+source /local_opt/vllm-install/.vllm/bin/activate
+which python
+python -V
+tail -n 120 /local_opt/vllm-install/triton-build.log
+tail -n 120 /local_opt/vllm-install/flashinfer-build.log
+tail -n 120 /local_opt/vllm-install/vllm-build.log
+python -c "import triton, inspect; print(triton.__version__); print(inspect.getfile(triton))"
+python -c "import flashinfer, inspect; print(inspect.getfile(flashinfer))"
+python -c "import vllm, inspect; print(vllm.__file__)"
+
+ bash smoke_test_vllm_model.sh \
+ --model /local_opt/vllm-models/Qwen-Qwen2.5-7B-Instruct
+
+
+
+ls -l /local_opt/vllm-install
+ls -l /local_opt/vllm-install/triton-build.log
+tail -n 80 /local_opt/vllm-install/triton-build.log
+
+nvidia-ml-py tqdm
+python -m pip install nvidia-ml-py tqdm
+python -m pip install \
+  click \
+  cuda-tile \
+  einops \
+  "nvidia-cudnn-frontend>=1.13.0" \
+  "nvidia-cutlass-dsl>=4.4.2" \
+  requests \
+  tabulate \
+  "apache-tvm-ffi>=0.1.6,<0.2,!=0.1.8,!=0.1.8.post0"
+
+  python -c "import triton, flashinfer, inspect; print(triton.__version__); print(inspect.getfile(triton)); print(inspect.getfile(flashinfer))"
+cd /local_opt/vllm-install/vllm
+python -m pip install --no-build-isolation --no-deps -e . 2>&1 | tee /local_opt/vllm-install/vllm-build.log
+python -c "import vllm, inspect; print(vllm.__file__)"
+python -m vllm.entrypoints.openai.api_server --help
+
+python -m pip install \
+  cloudpickle \
+  msgspec \
+  psutil \
+  pyyaml \
+  requests \
+  tqdm \
+  numpy \
+  packaging \
+  setuptools \
+  filelock \
+  typing-extensions
+
+
+  (.vllm) root@node09:/local_opt/vllm-install/triton# python -c "import triton, inspect; print(triton.__version__); print(inspect.getfile(triton))"
+3.5.0
+/local_opt/vllm-install/.vllm/lib/python3.12/site-packages/triton/__init__.py
+(.vllm) root@node09:/local_opt/vllm-install/triton# 
+
+
+pkill -f "vllm.entrypoints.openai.api_server" || true
+pkill -f "VLLM::EngineCore" || true
+sleep 3
+ps -ef | grep -i vllm | grep -v grep
+
+
+bash smoke_test_vllm_model.sh \
+  --model /local_opt/vllm-models/Qwen-Qwen2.5-7B-Instruct \
+  --gpu-memory-util 0.25 \
+  --max-model-len 2048 \
+  --max-num-seqs 1 \
+  --max-num-batched-tokens 512 \
+  --enforce-eager \
+  --max-wait 600 \
+  --test-chat \
+  --keep-server
+
+  bash smoke_test_vllm_model.sh \
+  --stop-existing \
+  --model /local_opt/vllm-models/Qwen-Qwen2.5-7B-Instruct \
+  --gpu-memory-util 0.15 \
+  --max-model-len 1024 \
+  --max-num-seqs 1 \
+  --max-num-batched-tokens 256 \
+  --enforce-eager \
+  --max-wait 600 \
+  --test-chat \
+  --keep-server
