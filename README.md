@@ -1,168 +1,65 @@
-Here is a comprehensive `README.md` draft for **vllm4dgx**.
-
-````markdown
 # vllm4dgx
 
-A practical toolkit for installing, validating, snapshotting, comparing, and restoring a **working vLLM environment on NVIDIA DGX Spark / GB10**.
+NVIDIA DGX Spark / GB10 平台的 vLLM 安裝、驗證、快照、還原工具集。
 
-This repository contains four scripts that were built around a known-good installation flow:
-
-- `install.sh` — one-shot installer for a working vLLM stack
-- `smoke_test_vllm_model.sh` — post-install smoke test and lightweight serving helper
-- `vllm_workable_info.pl` — snapshot the current working environment and compare future installs
-- `restore_vllm_from_snapshot.pl` — repair a drifted/broken installation back toward the known-good state
-
-The scripts assume a default installation path of:
-
-```bash
-/local_opt/vllm-install
-````
-
-and a default snapshot/info path of:
-
-```bash
-/local_opt/workable_llm_info
-```
-
-The installer pins:
-
-* **vLLM commit:** `66a168a197ba214a5b70a74fa2e713c9eeb3251a`
-* **Triton commit:** `4caa0328bf8df64896dd5f6fb9df41b0eb2e750a`
-* **Python:** `3.12`
+本儲存庫提供四個核心腳本，確保在 DGX Spark / GB10（Blackwell/SM100）架構上維持一個「已知可用」的 vLLM 環境。
 
 ---
 
-## Why this repository exists
+## 為什麼需要這個 repo
 
-On DGX Spark / GB10, upstream `vllm` installation can drift into a broken state because of:
+在 DGX Spark / GB10 上，上游 `vllm` 安裝容易因以下原因毀壞：
 
-* Triton version mismatch
-* FlashInfer packaging/build issues
-* vLLM CMake target wiring issues for Blackwell/SM100
-* editable-install import path issues
-* dependency drift after runtime package installation
+- Triton 版本不匹配
+- FlashInfer 封裝/編譯問題
+- vLLM CMake 目標在 Blackwell/SM100 上的線程問題
+- editable-install import 路徑問題
+- 依賴套件漂移
 
-This repository captures a **known workable configuration** and automates the fixes that were needed to make it run reliably. In particular, the installer patches `CMakeLists.txt` to add Blackwell-related architecture support and directly attaches:
+本 repo 透過 `install.sh` 鎖定已知可運作版本，並提供 `vllm_workable_info.pl` 和 `restore_vllm_from_snapshot.pl` 來防止環境漂移。
 
-```cmake
-target_sources(_C PRIVATE
-  csrc/quantization/w8a8/cutlass/moe/grouped_mm_c3x_sm100.cu
-)
-```
+## 鎖定版本
 
-to the `_C` extension target, which is critical for making `cutlass_moe_mm_sm100` resolve correctly in `vllm/_C.abi3.so`.
+| 套件 | 版本 |
+|---|---|
+| vLLM | `66a168a197ba214a5b70a74fa2e713c9eeb3251a` |
+| Triton | `4caa0328bf8df64896dd5f6fb9df41b0eb2e750a` (v3.5.0) |
+| Python | 3.12 |
+| PyTorch | cu130 |
 
----
-
-## Repository contents
-
-### 1. `install.sh`
-
-A one-shot installer for the full working environment. It:
-
-* creates a Python 3.12 virtual environment with `uv`
-* installs PyTorch `cu130`
-* removes Torch’s Triton wheel
-* builds **pinned Triton 3.5.0** from the tested commit
-* installs FlashInfer from local source
-* clones `vllm` at the tested commit
-* patches `CMakeLists.txt` for SM100/SM120-related support
-* patches `_C` target sources for `grouped_mm_c3x_sm100.cu`
-* installs selected runtime dependencies
-* restores pinned Triton after dependency drift
-* rebuilds `vllm`
-* verifies:
-
-  * CUDA is available
-  * Triton is pinned to `3.5.0`
-  * `cutlass_moe_mm_sm100` is defined
-  * `python -m vllm.entrypoints.openai.api_server --help` works
-
-### 2. `smoke_test_vllm_model.sh`
-
-A smoke test and serving helper that:
-
-* activates the installed `.vllm` environment
-* switches into the `vllm` source tree
-* exports `PYTHONPATH` correctly
-* verifies the native extension symbol
-* optionally stops existing vLLM processes
-* starts the API server
-* waits for `/v1/models`
-* optionally tests `/v1/chat/completions`
-* can keep the server running after success
-
-It also supports low-memory tuning through:
-
-* `--gpu-memory-util`
-* `--max-model-len`
-* `--max-num-seqs`
-* `--max-num-batched-tokens`
-* `--enforce-eager`
-* `--stop-existing`
-* `--keep-server`
-
-### 3. `vllm_workable_info.pl`
-
-A snapshot and comparison tool. It can:
-
-* save the current working environment under `/local_opt/workable_llm_info`
-* record:
-
-  * `pip freeze`
-  * environment summary
-  * `api_server --help`
-  * symbol check
-  * `CMakeLists.txt`
-  * copies of `install.sh` and `smoke_test_vllm_model.sh`
-* compare a future installation against the saved working snapshot
-
-### 4. `restore_vllm_from_snapshot.pl`
-
-A repair tool that uses the saved snapshot defaults and tries to restore a drifted installation by:
-
-* forcing the working Python package pins
-* restoring the CMake patch if missing
-* restoring pinned Triton
-* rebuilding `vllm`
-* re-running final verification checks
+安裝時 `install.sh` 會修正 `CMakeLists.txt` 以支援 Blackwell 架構，並新增 `grouped_mm_c3x_sm100.cu` 至 `_C` 擴展目標。
 
 ---
 
-## Default known-good environment
+## 檔案清單
 
-This repository is built around the following working package state:
-
-* `torch == 2.11.0+cu130`
-* `triton == 3.5.0+git4caa0328`
-* `transformers == 4.56.0`
-* `tokenizers == 0.22.2`
-* `numpy == 2.2.6`
-* `flashinfer-python == 0.6.7` (local-source workflow used in practice)
-* `vllm` installed editable from the pinned commit
+| 檔案 | 功能 |
+|---|---|
+| `install.sh` | 一鍵安裝已知可用的 vLLM 環境 |
+| `smoke_test_vllm_model.sh` | 安裝後煙霧測試 + vLLM API 伺服器啟動 |
+| `vllm_workable_info.pl` | 快照當前可用環境，比較未來安裝 |
+| `restore_vllm_from_snapshot.pl` | 從快照還原/修復漂移的安裝 |
+| `installation_check_cmd.txt` | 安裝檢查命令參考 |
 
 ---
 
-## Requirements
+## 依賴環境
 
-This repository assumes:
-
-* NVIDIA DGX Spark / GB10
-* CUDA 13.0 environment
-* `git`
-* `python3`
-* `curl`
-* `nvidia-smi`
-* `nvcc`
-* Linux shell environment with permission to write under `/local_opt`
-
-If `uv` is not installed, `install.sh` will install it automatically. 
+| 項目 | 需求 |
+|---|---|
+| OS | Rocky Linux 8/9（或相容 RHEL） |
+| GPU | NVIDIA DGX Spark / GB10（Blackwell, aarch64） |
+| 驅動 | NVIDIA Driver 580.x+ |
+| CUDA | 13.x（含 nvcc） |
+| Python | 3.12 |
+| 工具 | git, curl, uv（若未安裝會自動安裝） |
+| 權限 | root（預設安裝至 /local_opt） |
 
 ---
 
-## Quick start
+## 使用方法
 
-### 1. Fresh install
+### 1. 全新安裝
 
 ```bash
 deactivate 2>/dev/null || true
@@ -170,31 +67,30 @@ rm -rf /local_opt/vllm-install
 bash install.sh --install-dir /local_opt/vllm-install |& tee /home/install.log
 ```
 
-Expected successful end state:
+**參數：**
 
-* final verification prints the correct `vllm` file path
-* `cutlass_moe_mm_sm100` appears with `T`
-* `api_server --help works`
-* `Environment verification passed` 
+| 參數 | 說明 | 預設值 |
+|---|---|---|
+| `--install-dir DIR` | 安裝目錄 | 當前目錄下的 `vllm-install` |
+| `--vllm-version HASH` | vLLM git commit | `66a168a197ba214a5b70a74fa2e713c9eeb3251a` |
+| `--python-version VER` | Python 版本 | `3.12` |
 
-### 2. Activate the environment
+安裝過程約 20-30 分鐘（CPU 編譯）。
 
-```bash
-source /local_opt/vllm-install/.vllm/bin/activate
-```
-
-### 3. Run a smoke test
-
-Basic:
+### 2. 煙霧測試
 
 ```bash
+# 基本測試
+bash smoke_test_vllm_model.sh --model /local_opt/vllm-models/Qwen-Qwen2.5-7B-Instruct
+
+# 測試並保持伺服器運行
 bash smoke_test_vllm_model.sh \
-  --model /local_opt/vllm-models/Qwen-Qwen2.5-7B-Instruct
-```
+  --stop-existing \
+  --model /local_opt/vllm-models/Qwen-Qwen2.5-7B-Instruct \
+  --test-chat \
+  --keep-server
 
-Low-memory mode:
-
-```bash
+# 低記憶體測試
 bash smoke_test_vllm_model.sh \
   --stop-existing \
   --model /local_opt/vllm-models/Qwen-Qwen2.5-7B-Instruct \
@@ -203,241 +99,176 @@ bash smoke_test_vllm_model.sh \
   --max-num-seqs 1 \
   --max-num-batched-tokens 256 \
   --enforce-eager \
-  --max-wait 600 \
-  --test-chat \
-  --keep-server
+  --test-chat
 ```
 
-Keep server running after test:
+**參數：**
+
+| 參數 | 說明 | 預設值 |
+|---|---|---|
+| `--model PATH_OR_HF_ID` | 模型路徑或 HF ID | **必填** |
+| `--install-dir DIR` | vLLM 安裝目錄 | `/local_opt/vllm-install` |
+| `--host HOST` | API 伺服器 host | `127.0.0.1` |
+| `--port PORT` | API 伺服器 port | `8000` |
+| `--gpu-memory-util FLOAT` | GPU 記憶體使用比例 | `0.30` |
+| `--max-model-len INT` | 最大上下文長度 | `4096` |
+| `--max-num-seqs INT` | 最大並行序列 | `1` |
+| `--max-num-batched-tokens INT` | 最大批次 token | `1024` |
+| `--test-chat` | 執行聊天測試 | 關閉 |
+| `--keep-server` | 測試後保留伺服器 | 關閉 |
+| `--stop-existing` | 先停止現有 vLLM | 關閉 |
+| `--enforce-eager` | 停用 CUDA graph 以減低記憶體 | 關閉 |
+| `--max-wait SEC` | 伺服器啟動等待秒數 | `600` |
+
+### 3. 環境快照
 
 ```bash
-bash smoke_test_vllm_model.sh \
-  --stop-existing \
-  --model /local_opt/vllm-models/Qwen-Qwen2.5-7B-Instruct \
-  --test-chat \
-  --keep-server
-```
-
-These usage patterns are built into the script help text as examples. 
-
----
-
-## Starting the API server manually
-
-Once installation succeeds, a typical manual launch looks like:
-
-```bash
-source /local_opt/vllm-install/.vllm/bin/activate
-cd /local_opt/vllm-install/vllm
-export PYTHONPATH=/local_opt/vllm-install/vllm:${PYTHONPATH:-}
-
-python -m vllm.entrypoints.openai.api_server \
-  --model /local_opt/vllm-models/Qwen-Qwen2.5-7B-Instruct \
-  --host 127.0.0.1 \
-  --port 8000 \
-  --gpu-memory-utilization 0.85
-```
-
-Then test:
-
-```bash
-curl http://127.0.0.1:8000/v1/models
-```
-
-And a tiny chat completion:
-
-```bash
-curl -s http://127.0.0.1:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "/local_opt/vllm-models/Qwen-Qwen2.5-7B-Instruct",
-    "messages": [
-      {"role": "user", "content": "Reply with exactly the word OK."}
-    ],
-    "max_tokens": 8,
-    "temperature": 0
-  }'
-```
-
-The smoke test script automates this flow.
-
----
-
-## Saving the current working state
-
-After you have a working installation, save a snapshot:
-
-```bash
+# 建立當前環境快照
 perl vllm_workable_info.pl snapshot
+
+# 自訂路徑
+perl vllm_workable_info.pl snapshot \
+  --install-dir /local_opt/vllm-install \
+  --out-dir /local_opt/workable_llm_info
 ```
 
-This stores the working information under:
+**快照輸出（/local_opt/workable_llm_info/）：**
+
+| 檔案 | 內容 |
+|---|---|
+| `snapshot_meta.txt` | 快照時間、路徑、vLLM SO 位置 |
+| `requirements_freeze.txt` | pip freeze 套件清單 |
+| `env_summary.txt` | torch/triton/flashinfer/vllm 版本 JSON |
+| `api_server_help.txt` | `api_server --help` 輸出 |
+| `symbol_check.txt` | `_C.abi3.so` 中的 `cutlass_moe_mm_sm100` 符號 |
+| `CMakeLists.final_working.txt` | 當前 CMake 配置備份 |
+
+### 4. 環境比較
 
 ```bash
-/local_opt/workable_llm_info
+# 比較新安裝與快照
+perl vllm_workable_info.pl compare --target /path/to/new-install
 ```
 
-with metadata, freeze output, environment summary, help output, symbol check, and copies of important files.
+輸出包含：
+- 套件 freeze diff
+- 環境摘要 diff
+- 符號檢查 diff
+- 快速狀態報告（triton 版本、CUDA 可用、符號定義等）
 
----
-
-## Comparing a future installation
-
-If you reinstall later into another path, compare it against the known-good snapshot:
-
-```bash
-perl vllm_workable_info.pl compare --target /path/
-```
-
-This checks:
-
-* venv existence
-* `_C.abi3.so` existence
-* Triton version
-* Transformers version
-* Tokenizers version
-* NumPy version
-* CUDA availability
-* `cutlass_moe_mm_sm100` symbol definition
-* `api_server --help` health
-
----
-
-## Restoring a broken installation
-
-If a future installation drifts or breaks, run:
+### 5. 從快照還原
 
 ```bash
+# 還原至已知可用狀態
 perl restore_vllm_from_snapshot.pl
-```
 
-Useful dry run:
-
-```bash
+# 預覽（不執行）
 perl restore_vllm_from_snapshot.pl --dry-run
 ```
 
-What it repairs:
+**還原流程：**
 
-* package pins:
-
-  * `numpy==2.2.6`
-  * `transformers==4.56.0`
-  * `tokenizers==0.22.2`
-* missing CMake patch for `_C`
-* pinned Triton reinstall
-* `vllm` rebuild
-* final verification checks
+1. 顯示當前環境狀態
+2. 強制重裝鎖定套件（numpy==2.2.6, transformers==4.56.0, tokenizers==0.22.2）
+3. 檢查/修復 CMake patch（SM100 支援）
+4. 重裝 Triton 3.5.0
+5. 重編譯 vLLM
+6. 最終驗證
 
 ---
 
-## Memory tuning notes
+## 輸入/輸出格式
 
-For lower GPU memory usage, use the smoke test with:
+### install.sh 輸出
 
-* lower `--gpu-memory-util`
-* lower `--max-model-len`
-* lower `--max-num-seqs`
-* lower `--max-num-batched-tokens`
-* `--enforce-eager`
-
-Example:
-
-```bash
-bash smoke_test_vllm_model.sh \
-  --stop-existing \
-  --model /local_opt/vllm-models/Qwen-Qwen2.5-7B-Instruct \
-  --gpu-memory-util 0.10 \
-  --max-model-len 512 \
-  --max-num-seqs 1 \
-  --max-num-batched-tokens 128 \
-  --enforce-eager \
-  --max-wait 600 \
-  --test-chat \
-  --keep-server
+```
+========================================
+Creating virtual environment
+========================================
+[INFO] Install directory : /local_opt/vllm-install
+[INFO] vLLM commit       : 66a168a197ba214a5b70a74fa2e713c9eeb3251a
+[INFO] Triton commit     : 4caa0328bf8df64896dd5f6fb9df41b0eb2e750a
+...
+[SUCCESS] Installation verified
 ```
 
-Note that a 7B BF16 model still requires substantial GPU memory for model weights alone, so these options reduce KV cache and warmup overhead, not the base weight footprint. The smoke-test script was explicitly extended for this purpose.
+### smoke_test_vllm_model.sh 輸出
 
----
-
-## Troubleshooting
-
-### 1. `api_server --help` fails
-
-First ensure you are inside the correct source tree and `PYTHONPATH` is set:
-
-```bash
-source /local_opt/vllm-install/.vllm/bin/activate
-cd /local_opt/vllm-install/vllm
-export PYTHONPATH=/local_opt/vllm-install/vllm:${PYTHONPATH:-}
-python -m vllm.entrypoints.openai.api_server --help
+```
+[PASS] /v1/models responded
+{"data": [{"id": "model-name", ...}]}
+[PASS] Chat test completed
+[PASS] Smoke test passed
 ```
 
-This matters because editable installs can otherwise import `vllm` incorrectly as a namespace package. The installer’s final verification was updated to handle exactly this case. 
+### vllm_workable_info.pl 輸出
 
-### 2. Existing server prevents new settings from applying
-
-Use:
-
-```bash
-bash smoke_test_vllm_model.sh --stop-existing ...
+```
+[INFO] Creating snapshot from: /local_opt/vllm-install
+[INFO] Saving into: /local_opt/workable_llm_info
+[PASS] Snapshot completed.
 ```
 
-This kills any previous API server / EngineCore processes before launching with the new settings. 
+### restore_vllm_from_snapshot.pl 輸出
 
-### 3. Triton drift after installing more packages
-
-Run:
-
-```bash
-perl restore_vllm_from_snapshot.pl
 ```
-
-or at least compare:
-
-```bash
-perl vllm_workable_info.pl compare --target /local_opt/vllm-install
-```
-
-This repository is designed around restoring the tested Triton state.
-
-### 4. Symbol unresolved in `_C.abi3.so`
-
-Check:
-
-```bash
-nm -D /local_opt/vllm-install/vllm/vllm/_C.abi3.so | c++filt | grep cutlass_moe_mm_sm100
-```
-
-You want:
-
-```text
-T cutlass_moe_mm_sm100(...)
-```
-
-not `U`. The installer and restore script both enforce the relevant CMake patch.
-
----
-
-## Suggested repository layout
-
-```text
-vllm4dgx/
-├── install.sh
-├── smoke_test_vllm_model.sh
-├── vllm_workable_info.pl
-├── restore_vllm_from_snapshot.pl
-└── README.md
+========== vLLM Restore From Snapshot ==========
+[INFO] install_dir = /local_opt/vllm-install
+========== Fix Python package pins ==========
+...
+[PASS] api_server --help works
+[PASS] cutlass_moe_mm_sm100 is defined
+[PASS] environment restored
+[PASS] Restore procedure finished.
 ```
 
 ---
 
-## Notes
+## AI Agent 操控指南
 
-This repository is intentionally opinionated and tuned for a **specific known-good DGX Spark / GB10 installation path**. It is not trying to be a generic upstream `vllm` installer. Its value is in preserving and reproducing a setup that was actually made to work end-to-end, including installation, verification, serving, snapshotting, comparison, and restore.
+### 當你需要驗證 vLLM 環境是否正常時
 
 ```
-
-A good next step is to save this as `README.md` in the new repo and add your tested example model path near the top so users can copy-paste the smoke-test command directly.
+任務: 檢查 vLLM 環境
+步驟:
+1. 執行: perl vllm_workable_info.pl compare --target /local_opt/vllm-install
+2. 檢查輸出中的 [OK] / [NO] 狀態
+3. 若發現 [NO]，執行: perl restore_vllm_from_snapshot.pl --dry-run 預覽修復步驟
+4. 確認後執行: perl restore_vllm_from_snapshot.pl 實際修復
+5. 修復後再次 compare 驗證
 ```
+
+### 當你需要在新節點安裝 vLLM 時
+
+```
+任務: 新節點 vLLM 安裝
+步驟:
+1. 確認節點有 NVIDIA driver + CUDA + nvidia-smi
+2. 確認 /local_opt 有足夠空間（至少 20GB）
+3. 複製 repo 到節點
+4. 執行: bash install.sh --install-dir /local_opt/vllm-install |& tee /home/install.log
+5. 安裝完成後: perl vllm_workable_info.pl snapshot 建立快照
+6. 執行: bash smoke_test_vllm_model.sh --model <MODEL_PATH> --test-chat 驗證
+```
+
+### 當環境出現問題時（依賴漂移）
+
+```
+任務: 修復漂移的 vLLM 環境
+步驟:
+1. 執行: perl vllm_workable_info.pl compare --target /local_opt/vllm-install
+2. 若 diff 顯示版本變化:
+   a. perl restore_vllm_from_snapshot.pl --dry-run（預覽）
+   b. perl restore_vllm_from_snapshot.pl（實際修復）
+3. 驗證: bash smoke_test_vllm_model.sh --model <MODEL_PATH> --test-chat
+```
+
+### 疑難排解
+
+| 症狀 | 原因 | 解決方式 |
+|---|---|---|
+| `cutlass_moe_mm_sm100 is not defined` | CMake patch 遺失 | `perl restore_vllm_from_snapshot.pl` |
+| `Triton version != 3.5.0` | Triton 被依賴重裝覆蓋 | `perl restore_vllm_from_snapshot.pl` |
+| `vllm._C.abi3.so not found` | vLLM 未編譯 | 重跑 `install.sh` |
+| `CUDA not available` | PyTorch 未正確安裝 | 檢查 nvcc 和 CUDA 驅動 |
+| 伺服器啟動失敗 | 記憶體不足 | 用 `--gpu-memory-util 0.15` 降低 |
